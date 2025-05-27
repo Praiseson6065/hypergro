@@ -1,0 +1,38 @@
+ENVIRONMENT: "development"
+
+JWT :
+  SECRET: "${JWT_SECRET}"
+  EXPIRE: 24
+
+development:
+  server:
+    port: ":8000"
+    mode: debug
+  mongodb:
+    uri: "mongodb://root:example@localhost:27017"
+    database: "property_system"
+    timeout: 10
+  redis:
+    addr: "localhost:6379"  
+    password: ""
+    db: 0
+    timeout: 5
+ 
+  logging:
+    level: debug
+
+production:
+  server:
+    port: ":8000"
+    mode: release
+  mongodb:
+    uri: "mongodb://mongo:27017"
+    database: "property_system"
+    timeout: 15
+  redis:
+    addr: "redis:6379" 
+    password: "${REDIS_PASSWORD}" 
+    db: 0
+    timeout: 5
+  logging:
+    level: info
