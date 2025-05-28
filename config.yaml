@@ -1,4 +1,4 @@
-ENVIRONMENT: "development"
+ENVIRONMENT: "production"
 
 JWT :
   SECRET: "${JWT_SECRET}"

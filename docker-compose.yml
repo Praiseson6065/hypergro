@@ -20,15 +20,18 @@ services:
       - redis
     environment:
       MONGO_URI: mongodb://admin:hypergro@mongo:27017/
-    volumes:
-      - .:/app
+    healthcheck:
+      test: ["CMD", "/main", "--health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
-      
   redis:
     image: redis:latest
     container_name: redis-container
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
