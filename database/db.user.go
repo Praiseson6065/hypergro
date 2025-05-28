@@ -19,7 +19,7 @@ func FirstOrCreateUser(ctx *gin.Context, user *models.User) (string, error) {
 	defer cancel()
 
 	existingUser := &models.User{}
-	err := collection.FindOne(ctx, bson.M{"email": user.Email}).Decode(existingUser)
+	err := collection.FindOne(dbCtx, bson.M{"email": user.Email}).Decode(existingUser)
 
 	if err != nil && err.Error() == "mongo: no documents in result" {
 		user.CreatedAt = time.Now()
