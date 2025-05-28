@@ -4,6 +4,7 @@ import (
 	"Praiseson6065/Hypergro-assign/models"
 	"context"
 	"errors"
+	"log"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -158,7 +159,20 @@ func RemoveFromFavorites(ctx *gin.Context, userID string, propertyID string) err
 }
 
 // GetUserFavorites retrieves a list of favorite properties for a user
-func GetUserFavorites(ctx context.Context, userID string) ([]models.Property, error) {
+func GetUserFavorites(ctx *gin.Context, userID string) ([]models.Property, error) {
+	// Try to get from cache first
+	cacheKey := UserFavoritesKeyPrefix + userID
+	var favoriteProperties []models.Property
+	found, err := GetFromCache(ctx, cacheKey, &favoriteProperties)
+	if err != nil {
+		log.Printf("Error retrieving user favorites from cache: %v", err)
+	}
+
+	if found {
+		return favoriteProperties, nil
+	}
+
+	// Not in cache, get from database
 	db := GetMongoDB()
 	usersCollection := db.Collection("users")
 	propertiesCollection := db.Collection("properties")
@@ -190,16 +204,21 @@ func GetUserFavorites(ctx context.Context, userID string) ([]models.Property, er
 	}
 	defer cursor.Close(dbCtx)
 
-	var favoriteProperties []models.Property
 	if err := cursor.All(dbCtx, &favoriteProperties); err != nil {
 		return nil, err
+	}
+
+	// Store in cache for future requests
+	err = SetInCache(ctx, cacheKey, favoriteProperties, MediumTerm)
+	if err != nil {
+		log.Printf("Error caching user favorites: %v", err)
 	}
 
 	return favoriteProperties, nil
 }
 
 // AddFavoriteProperty adds a property to a user's favorites
-func AddFavoriteProperty(ctx context.Context, userID string, propertyID string) error {
+func AddFavoriteProperty(ctx *gin.Context, userID string, propertyID string) error {
 	db := GetMongoDB()
 	collection := db.Collection("users")
 	dbCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
@@ -251,11 +270,14 @@ func AddFavoriteProperty(ctx context.Context, userID string, propertyID string) 
 		return errors.New("property already in favorites")
 	}
 
+	// Clear the favorites cache for this user
+	ClearUserFavoritesCache(ctx, userID)
+
 	return nil
 }
 
 // RemoveFavoriteProperty removes a property from a user's favorites
-func RemoveFavoriteProperty(ctx context.Context, userID string, propertyID string) error {
+func RemoveFavoriteProperty(ctx *gin.Context, userID string, propertyID string) error {
 	db := GetMongoDB()
 	collection := db.Collection("users")
 	dbCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
@@ -297,77 +319,29 @@ func RemoveFavoriteProperty(ctx context.Context, userID string, propertyID strin
 		return errors.New("property not in favorites")
 	}
 
+	// Clear the favorites cache for this user
+	ClearUserFavoritesCache(ctx, userID)
+
 	return nil
 }
 
 // Functions for recommendations
 
-// RecommendProperty adds a property recommendation to a user
-func RecommendProperty(ctx context.Context, fromUserID, toUserID, propertyID string) error {
-	db := GetMongoDB()
-	usersCollection := db.Collection("users")
-	propertiesCollection := db.Collection("properties")
-	dbCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-	defer cancel()
-
-	// Convert IDs to ObjectIDs
-	fromUserObjID, err := primitive.ObjectIDFromHex(fromUserID)
-	if err != nil {
-		return errors.New("invalid recommender user ID format")
-	}
-
-	toUserObjID, err := primitive.ObjectIDFromHex(toUserID)
-	if err != nil {
-		return errors.New("invalid recipient user ID format")
-	}
-
-	propObjID, err := primitive.ObjectIDFromHex(propertyID)
-	if err != nil {
-		return errors.New("invalid property ID format")
-	}
-
-	// Check if property exists
-	count, err := propertiesCollection.CountDocuments(dbCtx, bson.M{"_id": propObjID})
-	if err != nil {
-		return err
-	}
-	if count == 0 {
-		return errors.New("property not found")
-	}
-
-	// Check if recipient user exists
-	count, err = usersCollection.CountDocuments(dbCtx, bson.M{"_id": toUserObjID})
-	if err != nil {
-		return err
-	}
-	if count == 0 {
-		return errors.New("recipient user not found")
-	}
-
-	// Create recommendation
-	recommendation := models.Recommendation{
-		PropertyID:    propObjID,
-		RecommendedBy: fromUserObjID,
-		RecommendedAt: time.Now(),
-	}
-
-	// Add recommendation to recipient's recommendations
-	update := bson.M{
-		"$push": bson.M{
-			"recommendationsReceived": recommendation,
-		},
-	}
-
-	_, err = usersCollection.UpdateOne(dbCtx, bson.M{"_id": toUserObjID}, update)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // GetReceivedRecommendations retrieves recommendations received by a user
-func GetReceivedRecommendations(ctx context.Context, userID string) ([]map[string]interface{}, error) {
+func GetReceivedRecommendations(ctx *gin.Context, userID string) ([]map[string]interface{}, error) {
+	// Try to get from cache first
+	cacheKey := "user:recommendations:" + userID
+	var recommendations []map[string]interface{}
+	found, err := GetFromCache(ctx, cacheKey, &recommendations)
+	if err != nil {
+		log.Printf("Error retrieving recommendations from cache: %v", err)
+	}
+
+	if found {
+		return recommendations, nil
+	}
+
+	// Not in cache, get from database
 	db := GetMongoDB()
 	usersCollection := db.Collection("users")
 	propertiesCollection := db.Collection("properties")
@@ -451,5 +425,81 @@ func GetReceivedRecommendations(ctx context.Context, userID string) ([]map[strin
 		}
 	}
 
+	// Store in cache for future requests
+	err = SetInCache(ctx, cacheKey, detailedRecommendations, MediumTerm)
+	if err != nil {
+		log.Printf("Error caching recommendations: %v", err)
+	}
+
 	return detailedRecommendations, nil
+}
+
+// RecommendProperty adds a property recommendation to a user
+func RecommendProperty(ctx *gin.Context, fromUserID, toUserID, propertyID string) error {
+	db := GetMongoDB()
+	usersCollection := db.Collection("users")
+	propertiesCollection := db.Collection("properties")
+	dbCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	// Convert IDs to ObjectIDs
+	fromUserObjID, err := primitive.ObjectIDFromHex(fromUserID)
+	if err != nil {
+		return errors.New("invalid recommender user ID format")
+	}
+
+	toUserObjID, err := primitive.ObjectIDFromHex(toUserID)
+	if err != nil {
+		return errors.New("invalid recipient user ID format")
+	}
+
+	propObjID, err := primitive.ObjectIDFromHex(propertyID)
+	if err != nil {
+		return errors.New("invalid property ID format")
+	}
+
+	// Check if property exists
+	count, err := propertiesCollection.CountDocuments(dbCtx, bson.M{"_id": propObjID})
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return errors.New("property not found")
+	}
+
+	// Check if recipient user exists
+	count, err = usersCollection.CountDocuments(dbCtx, bson.M{"_id": toUserObjID})
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return errors.New("recipient user not found")
+	}
+
+	// Create recommendation
+	recommendation := models.Recommendation{
+		PropertyID:    propObjID,
+		RecommendedBy: fromUserObjID,
+		RecommendedAt: time.Now(),
+	}
+
+	// Add recommendation to recipient's recommendations
+	update := bson.M{
+		"$push": bson.M{
+			"recommendationsReceived": recommendation,
+		},
+	}
+
+	_, err = usersCollection.UpdateOne(dbCtx, bson.M{"_id": toUserObjID}, update)
+	if err != nil {
+		return err
+	}
+
+	// Clear the recommendations cache for this user since they've received a new recommendation
+	err = DeleteFromCache(ctx, "user:recommendations:"+toUserID)
+	if err != nil {
+		log.Printf("Error clearing recommendations cache: %v", err)
+	}
+
+	return nil
 }

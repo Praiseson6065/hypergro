@@ -34,6 +34,7 @@ func ApiRouter(r *gin.Engine) {
 			authenticatedPropertyRoutes.POST("", property.CreateProperty())
 			authenticatedPropertyRoutes.PUT("/:id", property.UpdateProperty())
 			authenticatedPropertyRoutes.DELETE("/:id", property.DeleteProperty())
+			authenticatedPropertyRoutes.POST("/import-csv", property.ImportPropertiesFromCSV())
 		}
 	}
 
@@ -41,16 +42,16 @@ func ApiRouter(r *gin.Engine) {
 	userRoutes.Use(middleware.Authenicator())
 	{
 
-		userRoutes.GET("/:userId/favorites", favorites.ListUserFavorites())        
-		userRoutes.POST("/:userId/favorites", favorites.AddFavorite())              
-		userRoutes.DELETE("/:userId/favorites/:propId", favorites.RemoveFavorite()) 
-		userRoutes.GET("/:userId/recommendations/received", recommendations.ListReceivedRecommendations()) 
+		userRoutes.GET("/:userId/favorites", favorites.ListUserFavorites())
+		userRoutes.POST("/:userId/favorites", favorites.AddFavorite())
+		userRoutes.DELETE("/:userId/favorites/:propId", favorites.RemoveFavorite())
+		userRoutes.GET("/:userId/recommendations/received", recommendations.ListReceivedRecommendations())
 	}
 
 	recommendationRoutes := apiRoutes.Group("/recommendations")
 	recommendationRoutes.Use(middleware.Authenicator())
 	{
-		recommendationRoutes.POST("", recommendations.CreateRecommendation()) 
+		recommendationRoutes.POST("", recommendations.CreateRecommendation())
 	}
 
 }
